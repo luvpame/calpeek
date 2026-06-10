@@ -68,9 +68,10 @@ func ensureCalendarAccess(_ store: EKEventStore) {
             semaphore.signal()
         }
         // GUI を出せない文脈では許可ダイアログが表示されず永久に待つことがある。
-        // ポーリング起動でプロセスが堆積しないよう打ち切って権限なし扱いにする
-        if semaphore.wait(timeout: .now() + 30) == .timedOut {
-            debugLog("requestFullAccessToEvents timed out (30s)")
+        // ステータスバーホスト(a-bar 等)は 10 秒程度でプロセスを SIGTERM するため、
+        // それより手前で打ち切って権限なし扱いの警告を出す
+        if semaphore.wait(timeout: .now() + 8) == .timedOut {
+            debugLog("requestFullAccessToEvents timed out (8s)")
             exitForDeniedAccess()
         }
         debugLog("requestFullAccessToEvents granted = \(granted)")
@@ -89,6 +90,11 @@ func exitForDeniedAccess() -> Never {
         システム設定 > プライバシーとセキュリティ > カレンダー で、
         calpeek の起動元アプリ(ターミナル等)に「フルアクセス」を許可してください。
         初回はターミナルから calpeek を直接実行すると許可ダイアログが表示されます。
+
+        設定上は許可済みなのに失敗する場合、起動元アプリの更新で許可が
+        失効している可能性があります(ad-hoc 署名アプリはビルドごとに失効する)。
+        次のコマンドで許可をリセットすると、再度ダイアログが表示されます:
+          tccutil reset Calendar <起動元アプリの bundle ID>
 
         """
     )
