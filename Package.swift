@@ -5,8 +5,10 @@ let package = Package(
     name: "calpeek",
     platforms: [.macOS(.v14)],
     targets: [
+        .target(name: "CalpeekCore"),
         .executableTarget(
             name: "calpeek",
+            dependencies: ["CalpeekCore"],
             exclude: ["Info.plist"],
             // CLI には bundle がないため、Info.plist(カレンダー権限の usage description)を
             // バイナリ本体に埋め込む。詳細は docs/adr/0001 を参照。
@@ -18,6 +20,11 @@ let package = Package(
                     "-Xlinker", "Sources/calpeek/Info.plist",
                 ])
             ]
+        ),
+        .executableTarget(
+            name: "CalpeekCoreTests",
+            dependencies: ["CalpeekCore"],
+            path: "Tests/CalpeekCoreTests"
         )
     ]
 )
