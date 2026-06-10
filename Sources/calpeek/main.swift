@@ -53,12 +53,12 @@ func parseOptions() -> Options {
 
 // MARK: - カレンダー権限
 
-func ensureCalendarAccess(_ store: EKEventStore) {
+func ensureCalendarAccess(_ store: EKEventStore) -> Bool {
     let status = EKEventStore.authorizationStatus(for: .event)
     debugLog("authorizationStatus rawValue = \(status.rawValue) (0=未確定 1=制限 2=拒否 3=フルアクセス 4=書込のみ)")
     switch status {
     case .fullAccess:
-        return
+        return false
     case .notDetermined:
         let semaphore = DispatchSemaphore(value: 0)
         var granted = false
@@ -76,6 +76,7 @@ func ensureCalendarAccess(_ store: EKEventStore) {
         }
         debugLog("requestFullAccessToEvents granted = \(granted)")
         if !granted { exitForDeniedAccess() }
+        return true
     default:
         exitForDeniedAccess()
     }
@@ -155,8 +156,12 @@ debugEnabled = options.debug
 debugLog("executable = \(CommandLine.arguments[0]), pid = \(getpid()), ppid = \(getppid())")
 debugLog("options: calendars = \(options.calendarNames), threshold = \(options.thresholdMinutes)m")
 
-let store = EKEventStore()
-ensureCalendarAccess(store)
+var store = EKEventStore()
+let requestedAccess = ensureCalendarAccess(store)
+if requestedAccess {
+    store = EKEventStore()
+    debugLog("EKEventStore を権限許可後に作り直しました")
+}
 debugLog("利用可能なカレンダー: \(store.calendars(for: .event).map(\.title))")
 
 let now = Date()
