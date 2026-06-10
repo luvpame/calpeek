@@ -50,6 +50,10 @@
             runHook postInstall
           '';
 
+          postFixup = ''
+            /usr/bin/codesign --force --sign - "$out/bin/calpeek"
+          '';
+
           meta = {
             description = "Mac のカレンダーを一行で覗くステータスバー向け CLI";
             homepage = "https://github.com/luvpame/calpeek";
