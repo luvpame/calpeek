@@ -6,10 +6,17 @@ import Foundation
 struct Options {
     var calendarNames: [String] = []
     var thresholdMinutes = 30
+    var debug = false
 }
 
 func writeStderr(_ text: String) {
     FileHandle.standardError.write(Data(text.utf8))
+}
+
+var debugEnabled = false
+
+func debugLog(_ message: @autoclosure () -> String) {
+    if debugEnabled { writeStderr("[calpeek debug] \(message())\n") }
 }
 
 func fail(_ message: String) -> Never {
@@ -32,8 +39,10 @@ func parseOptions() -> Options {
                 fail("--threshold には 0 以上の分数を指定してください")
             }
             options.thresholdMinutes = minutes
+        case "--debug":
+            options.debug = true
         case "--help", "-h":
-            print("usage: calpeek [--calendars <名前,...>] [--threshold <分>]")
+            print("usage: calpeek [--calendars <名前,...>] [--threshold <分>] [--debug]")
             exit(0)
         default:
             fail("不明な引数: \(arg)")
@@ -45,17 +54,26 @@ func parseOptions() -> Options {
 // MARK: - カレンダー権限
 
 func ensureCalendarAccess(_ store: EKEventStore) {
-    switch EKEventStore.authorizationStatus(for: .event) {
+    let status = EKEventStore.authorizationStatus(for: .event)
+    debugLog("authorizationStatus rawValue = \(status.rawValue) (0=未確定 1=制限 2=拒否 3=フルアクセス 4=書込のみ)")
+    switch status {
     case .fullAccess:
         return
     case .notDetermined:
         let semaphore = DispatchSemaphore(value: 0)
         var granted = false
-        store.requestFullAccessToEvents { ok, _ in
+        store.requestFullAccessToEvents { ok, error in
             granted = ok
+            if let error { debugLog("requestFullAccessToEvents error: \(error)") }
             semaphore.signal()
         }
-        semaphore.wait()
+        // GUI を出せない文脈では許可ダイアログが表示されず永久に待つことがある。
+        // ポーリング起動でプロセスが堆積しないよう打ち切って権限なし扱いにする
+        if semaphore.wait(timeout: .now() + 30) == .timedOut {
+            debugLog("requestFullAccessToEvents timed out (30s)")
+            exitForDeniedAccess()
+        }
+        debugLog("requestFullAccessToEvents granted = \(granted)")
         if !granted { exitForDeniedAccess() }
     default:
         exitForDeniedAccess()
@@ -127,8 +145,13 @@ func title(of event: EKEvent) -> String {
 // MARK: - main
 
 let options = parseOptions()
+debugEnabled = options.debug
+debugLog("executable = \(CommandLine.arguments[0]), pid = \(getpid()), ppid = \(getppid())")
+debugLog("options: calendars = \(options.calendarNames), threshold = \(options.thresholdMinutes)m")
+
 let store = EKEventStore()
 ensureCalendarAccess(store)
+debugLog("利用可能なカレンダー: \(store.calendars(for: .event).map(\.title))")
 
 let now = Date()
 let startOfDay = Calendar.current.startOfDay(for: now)
@@ -147,10 +170,17 @@ if !options.calendarNames.isEmpty {
 
 // [現在時刻, 当日末] に重なるイベント = 進行中 + 当日のこれから
 let predicate = store.predicateForEvents(withStart: now, end: endOfDay, calendars: targetCalendars)
-let candidates = store.events(matching: predicate).filter { !$0.isAllDay && !isDeclined($0) }
+let fetched = store.events(matching: predicate)
+let candidates = fetched.filter { !$0.isAllDay && !isDeclined($0) }
+debugLog("探索窓 = \(now) 〜 \(endOfDay)")
+debugLog("取得 \(fetched.count) 件 → 判定対象 \(candidates.count) 件(終日・辞退を除外)")
+for event in candidates {
+    debugLog("  候補: \(title(of: event)) \(event.startDate!) 〜 \(event.endDate!)")
+}
 
 let current = pickCurrent(from: candidates, at: now)
 let upcoming = pickUpcoming(from: candidates, at: now)
+debugLog("now = \(current.map(title(of:)) ?? "なし"), next = \(upcoming.map(title(of:)) ?? "なし")")
 
 var parts: [String] = []
 
