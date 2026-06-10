@@ -207,4 +207,6 @@ if let upcoming {
 
 if !parts.isEmpty {
     print(parts.joined(separator: " → "))
+} else {
+    print("予定がありません")
 }
